@@ -1,0 +1,103 @@
+---
+title: "Machine Learning"
+author: "Niko Karajannis"
+date: "Tuesday, June 16, 2015"
+output: html_document
+---
+
+##Introduction
+
+Data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants are used to perform predictive analysis on a test set of 20 observations.
+
+
+##Preliminaries
+
+First, the training dataset is read in. NAs have been defined in the same step. These columns are removed in the next step. Then the data is cleaned from the first 7 columns that contain information which would cause problems in the analysis. Finally, all variables set to numeric.
+
+```{r}
+data <- read.csv("pml-training.csv", na.strings=c("#DIV/0!", "", "NA"))
+data <- data[,colSums(is.na(data))<19000]  ##get rid of columns with many NA
+data <- data[,-(1:7)]  ##get rid of variables name, timestamp etc.
+data[,1:52] <- sapply(data[,1:52], as.numeric)   ##make all variables numeric
+```
+
+When doing the analysis on a sample of the original dataset, it turned out that the algorithm already worked out very well. Using the whole dataset took a couple of hours; that is why I decided to do the assignment using the sample.  
+
+```{r, echo=FALSE}
+data <- data[sample(1:nrow(data), 10000, replace=FALSE),]
+```
+
+Then, a seed is set and the dataset is partitioned into a training set and a validation set.
+
+```{r}
+set.seed(1)
+library(caret)
+inTrain <- createDataPartition(y=data$classe, p=0.7, list=FALSE)
+training <- data[inTrain,]
+validation <- data[-inTrain,]
+```
+
+Before starting the analysis, some preprocessing is done. None of the variables seems to have near zero inflation.
+
+```{r}
+nearZeroVar(training, saveMetrics=TRUE)
+```
+
+However, some of the variables show multicollinearity (cor > .9). These variables are removed from both the training and the validation set.
+
+```{r}
+ncol(training)
+descrCorr <- cor(training[,1:52])
+highCorr <- findCorrelation(descrCorr, 0.90)
+training <- training[, -highCorr]
+validation <- validation[, -highCorr]
+ncol(training)
+ncol(validation)
+```
+
+Now the random forest algorhythm is applied to the training set. Random Forest is said to be one of the most useful methods in doing predictive analysis. In this case, the caret package is used. By default, the caret package uses bootstrapping as resampling method. 
+
+```{r}
+RF <- train(classe ~., data=training, method="rf", prox=TRUE)
+RF
+```
+
+For calculating the in sample error, the model predicts on the training data. Looking at the table, it turns out that the model works perfectly on the training data. But this is not of much concern here.
+
+```{r}
+TrueOutcome_train <- training$classe
+Prediction_train <- predict(RF, newdata=training)
+table(TrueOutcome_train,Prediction_train)
+```
+
+What is of more importance, is the out of sample error. Here, the model is applied on the validation data set. The table shows that overall, there were only 52 observations misclassified. For example, in 4 cases, where the true outcome was class A, the model predicted class B (first row, second column). As there are 2998 observations to be predicted in the validation set, it turns out that the random forest did remarkbaly well. The accuracy rate is 98.3%, that is in 98.3% of the observations were predicted correctly.
+
+```{r}
+TrueOutcome_validation <- validation$classe
+Prediction_validation <- predict(RF, newdata=validation)
+tab <- table(TrueOutcome_validation,Prediction_validation)
+tab
+(tab[1,1]+tab[2,2]+tab[3,3]+tab[4,4]+tab[5,5])/length(TrueOutcome_validation)
+```
+
+As regards the importance of single variables, the following graph gives some information. 
+
+```{r}
+varImpPlot(RF$finalModel)
+```
+
+Now that the model turned out to make good predictions on the validation set, it is now applied to the test set with 20 observations. On the test set, the same columns are removed as in the other two sets.
+
+```{r}
+test <- read.csv("pml-testing.csv", na.strings=c("", "NA"))
+test <- test[,colSums(is.na(test))<5]  ##get rid of columns with many NA
+test <- test[,-(1:7)]  ##get rid of variables name, timestamp etc.
+test[,1:52] <- sapply(test[,1:52], as.numeric)   ##make all variables numeric
+```
+
+Now the model is applied on the test set and the predictions based on the model are shown. 
+
+```{r}
+Prediction_test = predict(RF, newdata=test)
+Prediction_test
+```
